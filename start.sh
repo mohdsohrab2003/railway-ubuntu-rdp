@@ -3,12 +3,8 @@
 set -e
 
 echo "======================================"
-echo " Railway Ubuntu RDP Starting"
+echo " Railway Lightweight Ubuntu RDP"
 echo "======================================"
-
-# --------------------------------------------------
-# Environment variables
-# --------------------------------------------------
 
 RDP_USER="${RDP_USER:-rdpuser}"
 RDP_PASSWORD="${RDP_PASSWORD:-}"
@@ -18,19 +14,15 @@ if [ -z "$RDP_PASSWORD" ]; then
     exit 1
 fi
 
-echo "RDP user: $RDP_USER"
-
-# --------------------------------------------------
-# Create user if it does not exist
-# --------------------------------------------------
+# ---------------------------------------
+# Create user if necessary
+# ---------------------------------------
 
 if ! id "$RDP_USER" >/dev/null 2>&1; then
-    echo "Creating user $RDP_USER..."
 
-    useradd \
-        -m \
-        -s /bin/bash \
-        "$RDP_USER"
+    echo "Creating user: $RDP_USER"
+
+    useradd -m -s /bin/bash "$RDP_USER"
 
     usermod -aG sudo "$RDP_USER"
 
@@ -40,72 +32,61 @@ if ! id "$RDP_USER" >/dev/null 2>&1; then
     chmod 440 "/etc/sudoers.d/$RDP_USER"
 fi
 
-# --------------------------------------------------
-# Set password
-# --------------------------------------------------
-
 echo "$RDP_USER:$RDP_PASSWORD" | chpasswd
-
-# --------------------------------------------------
-# Prepare XFCE session
-# --------------------------------------------------
 
 USER_HOME=$(getent passwd "$RDP_USER" | cut -d: -f6)
 
 mkdir -p "$USER_HOME"
 
-cat > "$USER_HOME/.xsession" <<EOF
+# ---------------------------------------
+# XFCE session
+# ---------------------------------------
+
+cat > "$USER_HOME/.xsession" <<'EOF'
 #!/bin/sh
+
+unset DBUS_SESSION_BUS_ADDRESS
+unset XDG_RUNTIME_DIR
+
+export XDG_CURRENT_DESKTOP=XFCE
+export XDG_SESSION_DESKTOP=xfce
+
 exec dbus-run-session startxfce4
 EOF
 
 chown "$RDP_USER:$RDP_USER" "$USER_HOME/.xsession"
+
 chmod +x "$USER_HOME/.xsession"
 
-# --------------------------------------------------
-# Create persistent directories
-# --------------------------------------------------
+# ---------------------------------------
+# Persistent storage
+# ---------------------------------------
 
 mkdir -p /data
 
 chown "$RDP_USER:$RDP_USER" /data
 
-mkdir -p /data/Desktop
-mkdir -p /data/Downloads
-mkdir -p /data/Documents
-mkdir -p /data/Pictures
-mkdir -p /data/Videos
-
-chown -R "$RDP_USER:$RDP_USER" /data
-
-# --------------------------------------------------
-# Link persistent folders
-# --------------------------------------------------
-
 for DIR in Desktop Downloads Documents Pictures Videos
 do
-    if [ ! -L "$USER_HOME/$DIR" ]; then
+    mkdir -p "/data/$DIR"
+    chown "$RDP_USER:$RDP_USER" "/data/$DIR"
 
-        if [ -d "$USER_HOME/$DIR" ]; then
-            cp -a "$USER_HOME/$DIR/." "/data/$DIR/" 2>/dev/null || true
-            rm -rf "$USER_HOME/$DIR"
-        fi
-
+    if [ ! -e "$USER_HOME/$DIR" ]; then
         ln -s "/data/$DIR" "$USER_HOME/$DIR"
     fi
 done
 
-chown -h "$RDP_USER:$RDP_USER" \
-    "$USER_HOME/Desktop" \
-    "$USER_HOME/Downloads" \
-    "$USER_HOME/Documents" \
-    "$USER_HOME/Pictures" \
-    "$USER_HOME/Videos" \
-    2>/dev/null || true
+# ---------------------------------------
+# Firefox profile
+# ---------------------------------------
 
-# --------------------------------------------------
+mkdir -p "$USER_HOME/.mozilla/firefox/railway"
+
+chown -R "$RDP_USER:$RDP_USER" "$USER_HOME/.mozilla"
+
+# ---------------------------------------
 # Runtime directories
-# --------------------------------------------------
+# ---------------------------------------
 
 mkdir -p /run/dbus
 mkdir -p /var/run/xrdp
@@ -114,68 +95,53 @@ mkdir -p /var/run/xrdp-sesman
 chown xrdp:xrdp /var/run/xrdp 2>/dev/null || true
 chown xrdp:xrdp /var/run/xrdp-sesman 2>/dev/null || true
 
-# --------------------------------------------------
-# Start DBus
-# --------------------------------------------------
+# ---------------------------------------
+# DBus
+# ---------------------------------------
 
 echo "Starting DBus..."
 
-if command -v dbus-daemon >/dev/null 2>&1; then
-    dbus-daemon --system --fork || true
-fi
+dbus-daemon --system --fork 2>/dev/null || true
 
-# --------------------------------------------------
-# Start SSH
-# --------------------------------------------------
+# ---------------------------------------
+# SSH
+# ---------------------------------------
 
 echo "Starting SSH..."
 
 /usr/sbin/sshd
 
-# --------------------------------------------------
-# Start XRDP session manager
-# --------------------------------------------------
+# ---------------------------------------
+# XRDP
+# ---------------------------------------
 
 echo "Starting XRDP session manager..."
 
 /usr/sbin/xrdp-sesman --nodaemon &
-XRDP_SESMAN_PID=$!
 
 sleep 2
-
-# --------------------------------------------------
-# Start XRDP
-# --------------------------------------------------
 
 echo "Starting XRDP..."
 
 /usr/sbin/xrdp --nodaemon &
+
 XRDP_PID=$!
 
 sleep 3
 
-# --------------------------------------------------
-# Verify
-# --------------------------------------------------
-
 echo ""
 echo "======================================"
-echo " XRDP is running"
+echo " XRDP READY"
 echo " Port: 3389"
 echo " User: $RDP_USER"
 echo "======================================"
-echo ""
 
 if ss -lntp | grep -q ":3389"; then
-    echo "SUCCESS: XRDP listening on port 3389"
+    echo "SUCCESS: XRDP listening on 3389"
 else
     echo "WARNING: XRDP port 3389 not detected"
 fi
 
 echo ""
 
-# --------------------------------------------------
-# Keep container alive
-# --------------------------------------------------
-
-wait $XRDP_PID
+wait "$XRDP_PID"
