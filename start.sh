@@ -14,16 +14,11 @@ if [ -z "$RDP_PASSWORD" ]; then
     exit 1
 fi
 
-# ---------------------------------------
+echo "RDP user: $RDP_USER"
+
 # Create user if necessary
-# ---------------------------------------
-
 if ! id "$RDP_USER" >/dev/null 2>&1; then
-
-    echo "Creating user: $RDP_USER"
-
     useradd -m -s /bin/bash "$RDP_USER"
-
     usermod -aG sudo "$RDP_USER"
 
     echo "$RDP_USER ALL=(ALL) NOPASSWD:ALL" \
@@ -38,10 +33,7 @@ USER_HOME=$(getent passwd "$RDP_USER" | cut -d: -f6)
 
 mkdir -p "$USER_HOME"
 
-# ---------------------------------------
 # XFCE session
-# ---------------------------------------
-
 cat > "$USER_HOME/.xsession" <<'EOF'
 #!/bin/sh
 
@@ -55,15 +47,10 @@ exec dbus-run-session startxfce4
 EOF
 
 chown "$RDP_USER:$RDP_USER" "$USER_HOME/.xsession"
-
 chmod +x "$USER_HOME/.xsession"
 
-# ---------------------------------------
-# Persistent storage
-# ---------------------------------------
-
+# Persistent directories
 mkdir -p /data
-
 chown "$RDP_USER:$RDP_USER" /data
 
 for DIR in Desktop Downloads Documents Pictures Videos
@@ -76,18 +63,7 @@ do
     fi
 done
 
-# ---------------------------------------
-# Firefox profile
-# ---------------------------------------
-
-mkdir -p "$USER_HOME/.mozilla/firefox/railway"
-
-chown -R "$RDP_USER:$RDP_USER" "$USER_HOME/.mozilla"
-
-# ---------------------------------------
 # Runtime directories
-# ---------------------------------------
-
 mkdir -p /run/dbus
 mkdir -p /var/run/xrdp
 mkdir -p /var/run/xrdp-sesman
@@ -95,32 +71,24 @@ mkdir -p /var/run/xrdp-sesman
 chown xrdp:xrdp /var/run/xrdp 2>/dev/null || true
 chown xrdp:xrdp /var/run/xrdp-sesman 2>/dev/null || true
 
-# ---------------------------------------
 # DBus
-# ---------------------------------------
-
 echo "Starting DBus..."
 
 dbus-daemon --system --fork 2>/dev/null || true
 
-# ---------------------------------------
 # SSH
-# ---------------------------------------
-
 echo "Starting SSH..."
 
 /usr/sbin/sshd
 
-# ---------------------------------------
-# XRDP
-# ---------------------------------------
-
+# XRDP session manager
 echo "Starting XRDP session manager..."
 
 /usr/sbin/xrdp-sesman --nodaemon &
 
 sleep 2
 
+# XRDP
 echo "Starting XRDP..."
 
 /usr/sbin/xrdp --nodaemon &
